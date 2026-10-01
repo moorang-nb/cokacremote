@@ -51,7 +51,7 @@ describe("gateway/backend compose isolation contract", () => {
     );
     expect(backend).toContain("GENERIC_BACKEND_CONTAINER_NAME");
 
-    expect(compose).toContain("backend:\n    internal: true");
+    expect(compose).not.toContain("internal: true");
     expect(cloudflared).toContain('network_mode: "service:workmachine"');
     expect(cloudflared).toContain("CLOUDFLARED_CONTAINER_NAME");
     expect(compose).toContain("COKACREMOTE_REPOSITORY:");

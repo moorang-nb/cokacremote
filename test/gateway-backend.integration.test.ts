@@ -171,6 +171,18 @@ describe("gateway and private generic backend", () => {
         eof: true,
       });
 
+      const missingArguments = { path: "definitely-missing-proxy-file.txt" };
+      const backendMissing = await backendSession.client.callTool({
+        name: "read_file",
+        arguments: missingArguments,
+      });
+      const gatewayMissing = await gatewaySession.client.callTool({
+        name: "read_file",
+        arguments: missingArguments,
+      });
+      expect(backendMissing.isError).toBe(true);
+      expect(gatewayMissing).toEqual(backendMissing);
+
       const started = await gatewaySession.client.callTool({
         name: "exec_command",
         arguments: {
@@ -402,7 +414,7 @@ describe("gateway and private generic backend", () => {
     expect(backend).not.toContain("MCP_PUBLIC_URL");
     expect(backend).not.toMatch(/^\s+ports:/m);
     expect(backend).not.toContain("- public");
-    expect(networks).toContain("internal: true");
+    expect(networks).not.toContain("internal: true");
 
     const dockerfile = await readFile(
       new URL("../tunneling/Dockerfile", import.meta.url),

@@ -99,7 +99,6 @@ services:
 networks:
   public:
   backend:
-    internal: true
 
 volumes:
   cokacremote-state:
