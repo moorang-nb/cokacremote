@@ -1,6 +1,9 @@
 import path from "node:path";
 
+export type ServerMode = "monolith" | "gateway" | "generic-backend";
+
 export interface AppConfig {
+  mode: ServerMode;
   host: string;
   port: number;
   endpoint: string;
@@ -26,6 +29,13 @@ export interface AppConfig {
   maxProcesses: number;
   maxFileChunkBytes: number;
   maxEditFileBytes: number;
+  genericBackendUrl: string | undefined;
+  bridgeExchangeRoot: string | undefined;
+  bridgeAttestationKeyFile: string | undefined;
+  bridgeGeneration: number | undefined;
+  gatewaySourceFingerprint: string | undefined;
+  bridgeRequestTtlSeconds: number;
+  bridgeResultWaitMs: number;
 }
 
 function parseBoolean(value: string | undefined, fallback: boolean): boolean {
@@ -62,6 +72,14 @@ function parseInteger(
   return parsed;
 }
 
+function parseMode(value: string | undefined): ServerMode {
+  const mode = value?.trim() || "monolith";
+  if (mode === "monolith" || mode === "gateway" || mode === "generic-backend") {
+    return mode;
+  }
+  throw new Error("MCP_MODE must be one of monolith, gateway, generic-backend");
+}
+
 function normalizeEndpoint(value: string | undefined): string {
   const endpoint = value?.trim() || "/mcp";
   if (!endpoint.startsWith("/")) {
@@ -96,10 +114,41 @@ function normalizeOAuthUrl(value: string | undefined, name: string): string {
   return url.href;
 }
 
+function normalizeBackendUrl(value: string | undefined): string | undefined {
+  if (!value) {
+    return undefined;
+  }
+  let url: URL;
+  try {
+    url = new URL(value);
+  } catch {
+    throw new Error("MCP_GENERIC_BACKEND_URL must be an absolute URL");
+  }
+  if (!["http:", "https:"].includes(url.protocol)) {
+    throw new Error("MCP_GENERIC_BACKEND_URL must use HTTP or HTTPS");
+  }
+  if (url.username || url.password || url.search || url.hash) {
+    throw new Error("MCP_GENERIC_BACKEND_URL must not contain credentials, query, or fragment");
+  }
+  return url.href;
+}
+
+function normalizeFingerprint(value: string | undefined): string | undefined {
+  if (!value) {
+    return undefined;
+  }
+  const normalized = value.trim().toLowerCase();
+  if (!/^[0-9a-f]{64}$/.test(normalized)) {
+    throw new Error("MCP_GATEWAY_SOURCE_FINGERPRINT must be 64 lowercase hexadecimal characters");
+  }
+  return normalized;
+}
+
 export function loadConfig(
   env: NodeJS.ProcessEnv = process.env,
   processCwd = process.cwd(),
 ): AppConfig {
+  const mode = parseMode(env.MCP_MODE);
   const allowNoAuth = parseBoolean(env.MCP_ALLOW_NO_AUTH, false);
   const authToken = env.MCP_AUTH_TOKEN?.trim() || undefined;
   const oauthEnabled = parseBoolean(env.MCP_OAUTH_ENABLED, false);
@@ -115,6 +164,9 @@ export function loadConfig(
     throw new Error(
       "MCP_OAUTH_APPROVAL_KEY (or MCP_AUTH_TOKEN for backward compatibility) is required when OAuth is enabled",
     );
+  }
+  if (mode === "generic-backend" && oauthEnabled) {
+    throw new Error("generic-backend mode must not own OAuth state");
   }
 
   const defaultCwd = path.resolve(env.MCP_DEFAULT_CWD?.trim() || processCwd);
@@ -134,7 +186,33 @@ export function loadConfig(
       )
     : undefined;
 
+  const genericBackendUrl = normalizeBackendUrl(env.MCP_GENERIC_BACKEND_URL?.trim());
+  const bridgeExchangeRoot = env.MCP_BRIDGE_EXCHANGE_ROOT?.trim()
+    ? path.resolve(env.MCP_BRIDGE_EXCHANGE_ROOT.trim())
+    : undefined;
+  const bridgeAttestationKeyFile = env.MCP_BRIDGE_ATTESTATION_KEY_FILE?.trim()
+    ? path.resolve(env.MCP_BRIDGE_ATTESTATION_KEY_FILE.trim())
+    : undefined;
+  const bridgeGeneration = env.MCP_BRIDGE_GENERATION?.trim()
+    ? parseInteger(env.MCP_BRIDGE_GENERATION, 1, "MCP_BRIDGE_GENERATION", 1)
+    : undefined;
+  const gatewaySourceFingerprint = normalizeFingerprint(env.MCP_GATEWAY_SOURCE_FINGERPRINT);
+
+  if (mode === "gateway") {
+    const missing = [
+      !genericBackendUrl && "MCP_GENERIC_BACKEND_URL",
+      !bridgeExchangeRoot && "MCP_BRIDGE_EXCHANGE_ROOT",
+      !bridgeAttestationKeyFile && "MCP_BRIDGE_ATTESTATION_KEY_FILE",
+      !bridgeGeneration && "MCP_BRIDGE_GENERATION",
+      !gatewaySourceFingerprint && "MCP_GATEWAY_SOURCE_FINGERPRINT",
+    ].filter(Boolean);
+    if (missing.length > 0) {
+      throw new Error(`gateway mode requires ${missing.join(", ")}`);
+    }
+  }
+
   return {
+    mode,
     host: env.MCP_HOST?.trim() || "0.0.0.0",
     port: parseInteger(env.MCP_PORT, 3000, "MCP_PORT", 1, 65_535),
     endpoint,
@@ -214,6 +292,25 @@ export function loadConfig(
       64 * 1024 * 1024,
       "MCP_MAX_EDIT_FILE_BYTES",
       4096,
+    ),
+    genericBackendUrl,
+    bridgeExchangeRoot,
+    bridgeAttestationKeyFile,
+    bridgeGeneration,
+    gatewaySourceFingerprint,
+    bridgeRequestTtlSeconds: parseInteger(
+      env.MCP_BRIDGE_REQUEST_TTL_SECONDS,
+      300,
+      "MCP_BRIDGE_REQUEST_TTL_SECONDS",
+      30,
+      300,
+    ),
+    bridgeResultWaitMs: parseInteger(
+      env.MCP_BRIDGE_RESULT_WAIT_MS,
+      30_000,
+      "MCP_BRIDGE_RESULT_WAIT_MS",
+      0,
+      300_000,
     ),
   };
 }

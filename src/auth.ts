@@ -2,6 +2,7 @@ import { timingSafeEqual } from "node:crypto";
 
 import type { RequestHandler } from "express";
 import type { OAuthTokenVerifier } from "@modelcontextprotocol/sdk/server/auth/provider.js";
+import type { AuthInfo } from "@modelcontextprotocol/sdk/server/auth/types.js";
 
 import type { AppConfig } from "./config.js";
 
@@ -48,6 +49,7 @@ export function createBearerAuth(
           authInfo.resource?.href === expectedResource &&
           authInfo.scopes.includes("mcp:tools")
         ) {
+          (request as typeof request & { auth?: AuthInfo }).auth = authInfo;
           next();
           return;
         }

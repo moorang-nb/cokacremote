@@ -54,7 +54,7 @@ function rpcToolName(body: unknown): string | undefined {
 
 export async function startHttpServer(
   config: AppConfig,
-  services: McpServices,
+  services?: McpServices,
 ): Promise<RunningHttpServer> {
   const app = express();
   app.disable("x-powered-by");
@@ -147,8 +147,9 @@ export async function startHttpServer(
       transportMode: "stateless-json",
       activeMcpSessions: 0,
       activeMcpRequests,
-      managedProcesses: services.processManager.list().length,
-      unrestrictedHostAccess: true,
+      mode: config.mode,
+      managedProcesses: services?.processManager.list().length ?? 0,
+      unrestrictedHostAccess: config.mode !== "gateway",
       oauthEnabled: config.oauthEnabled,
     });
   });
@@ -220,10 +221,12 @@ export async function startHttpServer(
     },
   );
 
-  const cleanupInterval = setInterval(() => {
-    services.processManager.prune();
-  }, Math.min(config.processRetentionMs, 60_000));
-  cleanupInterval.unref();
+  const cleanupInterval = services
+    ? setInterval(() => {
+        services.processManager.prune();
+      }, Math.min(config.processRetentionMs, 60_000))
+    : undefined;
+  cleanupInterval?.unref();
 
   const httpServer = await new Promise<HttpServer>((resolve, reject) => {
     const listeningServer = app.listen(config.port, config.host, () => resolve(listeningServer));
@@ -231,12 +234,16 @@ export async function startHttpServer(
   });
 
   const close = async (): Promise<void> => {
-    clearInterval(cleanupInterval);
+    if (cleanupInterval) {
+      clearInterval(cleanupInterval);
+    }
     const requests = [...activeRequests];
     activeRequests.clear();
     activeMcpRequests = 0;
     await Promise.allSettled(requests.map((request) => request.server.close()));
-    await services.processManager.shutdown();
+    if (services) {
+      await services.processManager.shutdown();
+    }
     await new Promise<void>((resolve, reject) => {
       httpServer.close((error) => {
         if (error) {

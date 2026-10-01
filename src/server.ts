@@ -5,15 +5,20 @@ import { createServices } from "./mcp-server.js";
 
 async function main(): Promise<void> {
   const config = loadConfig();
-  const services = createServices(config);
+  const services = config.mode === "gateway" ? undefined : createServices(config);
   const running = await startHttpServer(config, services);
   const endpointUrl = config.publicUrl
     ? `${config.publicUrl}${config.endpoint}`
     : `http://${config.host}:${config.port}${config.endpoint}`;
 
   console.log(`cokacremote listening at ${endpointUrl}`);
+  console.log(`server mode: ${config.mode}`);
   console.log(`default cwd: ${config.defaultCwd}`);
-  console.log("execution mode: unrestricted host access");
+  console.log(
+    config.mode === "gateway"
+      ? "execution mode: public gateway; generic execution is delegated to private backend"
+      : "execution mode: unrestricted host access",
+  );
   console.log(
     config.allowNoAuth && !config.authToken && !config.oauthEnabled
       ? "authentication: disabled"

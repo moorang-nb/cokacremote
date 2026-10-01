@@ -8,6 +8,7 @@ ARG COKACREMOTE_REF=main
 
 ENV TZ=${TIMEZONE} \
     NODE_ENV=production \
+    MCP_MODE=monolith \
     MCP_HOST=127.0.0.1 \
     MCP_PORT=3000 \
     MCP_DEFAULT_CWD=/ \
@@ -88,6 +89,7 @@ NGINX
 cat > /etc/nginx/routes.d/10-cokacremote.conf <<'NGINX'
 location = /mcp {
     include /etc/nginx/snippets/workmachine-proxy.conf;
+    client_max_body_size 8m;
     proxy_buffering off;
     proxy_request_buffering off;
     proxy_pass http://127.0.0.1:3000;
@@ -162,10 +164,35 @@ cat > /usr/local/bin/workmachine-entrypoint <<'ENTRYPOINT'
 #!/usr/bin/env bash
 set -euo pipefail
 
-install -d -m 0755 /shared/nginx/routes.d
+mode="${MCP_MODE:-monolith}"
+case "${mode}" in
+    monolith|gateway|generic-backend) ;;
+    *)
+        echo "unsupported MCP_MODE: ${mode}" >&2
+        exit 64
+        ;;
+esac
 
 public_host=""
 public_mcp_url="not configured"
+
+if [[ "${mode}" == "generic-backend" && -d /shared && ! -e /shared/AGENTS.md && ! -L /shared/AGENTS.md ]]; then
+    agents_tmp="$(mktemp)"
+    PUBLIC_BASE_URL="${MCP_PUBLIC_URL:-not configured}" PUBLIC_DOMAIN="not configured" PUBLIC_MCP_URL="not configured" node -e 'const fs = require("fs"); const source = fs.readFileSync("/usr/local/share/workmachine/AGENTS.md", "utf8"); process.stdout.write(source.replaceAll("{{PUBLIC_BASE_URL}}", process.env.PUBLIC_BASE_URL).replaceAll("{{PUBLIC_DOMAIN}}", process.env.PUBLIC_DOMAIN).replaceAll("{{PUBLIC_MCP_URL}}", process.env.PUBLIC_MCP_URL));' > "${agents_tmp}"
+    install -m 0644 "${agents_tmp}" /shared/AGENTS.md
+    rm -f "${agents_tmp}"
+fi
+
+if [[ "${mode}" == "generic-backend" ]]; then
+    if [[ "${MCP_OAUTH_ENABLED:-false}" == "true" ]]; then
+        echo "generic-backend mode must not enable OAuth" >&2
+        exit 64
+    fi
+    cd /opt/cokacremote
+    exec /usr/bin/npm start
+fi
+
+install -d -m 0755 /shared/nginx/routes.d
 
 if [[ "${MCP_OAUTH_ENABLED:-false}" == "true" ]]; then
     : "${MCP_PUBLIC_URL:?Set MCP_PUBLIC_URL to the externally accessible base URL}"
@@ -188,23 +215,25 @@ if [[ -z "${MCP_ALLOWED_HOSTS:-}" ]]; then
     fi
 fi
 
-if [[ ! -e /shared/AGENTS.md && ! -L /shared/AGENTS.md ]]; then
+if [[ "${mode}" != "gateway" && ! -e /shared/AGENTS.md && ! -L /shared/AGENTS.md ]]; then
     agents_tmp="$(mktemp)"
     PUBLIC_BASE_URL="${MCP_PUBLIC_URL:-not configured}" PUBLIC_DOMAIN="${public_host:-not configured}" PUBLIC_MCP_URL="${public_mcp_url}" node -e 'const fs = require("fs"); const source = fs.readFileSync("/usr/local/share/workmachine/AGENTS.md", "utf8"); process.stdout.write(source.replaceAll("{{PUBLIC_BASE_URL}}", process.env.PUBLIC_BASE_URL).replaceAll("{{PUBLIC_DOMAIN}}", process.env.PUBLIC_DOMAIN).replaceAll("{{PUBLIC_MCP_URL}}", process.env.PUBLIC_MCP_URL));' > "${agents_tmp}"
     install -m 0644 "${agents_tmp}" /shared/AGENTS.md
     rm -f "${agents_tmp}"
 fi
 
-install -d -m 0700 "$(dirname "${MCP_OAUTH_STATE_FILE}")"
-install -d -m 0700 "$(dirname "${MCP_OAUTH_APPROVAL_KEY_FILE}")"
+if [[ "${MCP_OAUTH_ENABLED:-false}" == "true" ]]; then
+    install -d -m 0700 "$(dirname "${MCP_OAUTH_STATE_FILE}")"
+    install -d -m 0700 "$(dirname "${MCP_OAUTH_APPROVAL_KEY_FILE}")"
 
-if [[ -z "${MCP_OAUTH_APPROVAL_KEY:-}" ]]; then
-    if [[ ! -s "${MCP_OAUTH_APPROVAL_KEY_FILE}" ]]; then
-        openssl rand -hex 32 > "${MCP_OAUTH_APPROVAL_KEY_FILE}"
-        chmod 0600 "${MCP_OAUTH_APPROVAL_KEY_FILE}"
+    if [[ -z "${MCP_OAUTH_APPROVAL_KEY:-}" ]]; then
+        if [[ ! -s "${MCP_OAUTH_APPROVAL_KEY_FILE}" ]]; then
+            openssl rand -hex 32 > "${MCP_OAUTH_APPROVAL_KEY_FILE}"
+            chmod 0600 "${MCP_OAUTH_APPROVAL_KEY_FILE}"
+        fi
+        export MCP_OAUTH_APPROVAL_KEY
+        MCP_OAUTH_APPROVAL_KEY="$(<"${MCP_OAUTH_APPROVAL_KEY_FILE}")"
     fi
-    export MCP_OAUTH_APPROVAL_KEY
-    MCP_OAUTH_APPROVAL_KEY="$(<"${MCP_OAUTH_APPROVAL_KEY_FILE}")"
 fi
 
 nginx -t
