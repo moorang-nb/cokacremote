@@ -1,0 +1,4 @@
+tunneling/Dockerfile text eol=lf
+tunneling/*.sh text eol=lf
+tunneling/*.yml text eol=lf
+tunneling/*.yaml text eol=lf
