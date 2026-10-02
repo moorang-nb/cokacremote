@@ -73,6 +73,7 @@ describe("gateway/backend compose isolation contract", () => {
     expect(cloudflared).toContain("CLOUDFLARED_CONTAINER_NAME");
     expect(compose).toContain("COKACREMOTE_REPOSITORY:");
     expect(compose).toContain("COKACREMOTE_REF:");
+    expect(compose).toContain("COKACREMOTE_COMMIT:");
   });
 
   it("keeps generic-backend startup out of OAuth and public proxy ownership", async () => {
@@ -80,6 +81,9 @@ describe("gateway/backend compose isolation contract", () => {
       new URL("../tunneling/Dockerfile", import.meta.url),
       "utf8",
     );
+    expect(dockerfile).toContain("ARG COKACREMOTE_COMMIT=");
+    expect(dockerfile).toContain('observed_commit="$(git rev-parse HEAD)"');
+    expect(dockerfile).toContain("cokacremote source commit mismatch:");
     expect(dockerfile).toContain("MCP_MODE=monolith");
     expect(dockerfile).toContain(
       'if [[ "${mode}" == "generic-backend" ]]; then',
