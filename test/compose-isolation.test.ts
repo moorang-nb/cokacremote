@@ -44,6 +44,7 @@ describe("gateway/backend compose isolation contract", () => {
     const backend = serviceBlock(compose, "generic-backend", "cloudflared");
     const cloudflared = serviceBlock(compose, "cloudflared");
 
+    expect(gateway).toContain("target: workmachine");
     expect(gateway).toContain("MCP_MODE: gateway");
     expect(gateway).toContain(
       'MCP_GENERIC_BACKEND_URL: "http://generic-backend:3000/mcp"',
@@ -57,6 +58,8 @@ describe("gateway/backend compose isolation contract", () => {
     expect(gateway).toContain("read_only: true");
     expect(gateway).toContain("WORKMACHINE_CONTAINER_NAME");
 
+    expect(backend).toContain("target: generic-backend");
+    expect(backend).toContain("GENERIC_BACKEND_IMAGE");
     expect(backend).toContain("MCP_MODE: generic-backend");
     expect(backend).toContain('MCP_ALLOW_NO_AUTH: "true"');
     expect(backend).toContain('MCP_OAUTH_ENABLED: "false"');
@@ -81,6 +84,16 @@ describe("gateway/backend compose isolation contract", () => {
       new URL("../tunneling/Dockerfile", import.meta.url),
       "utf8",
     );
+    expect(dockerfile).toContain("FROM ubuntu:24.04 AS workmachine-base");
+    expect(dockerfile).toContain("FROM workmachine-base AS generic-backend");
+    expect(dockerfile).toContain("FROM workmachine-base AS workmachine");
+    const genericTarget = dockerfile.indexOf("FROM workmachine-base AS generic-backend");
+    const workmachineTarget = dockerfile.indexOf("FROM workmachine-base AS workmachine");
+    const oauthVolume = dockerfile.indexOf('VOLUME ["/var/lib/cokacremote"]');
+    expect(genericTarget).toBeGreaterThanOrEqual(0);
+    expect(workmachineTarget).toBeGreaterThan(genericTarget);
+    expect(oauthVolume).toBeGreaterThan(workmachineTarget);
+    expect(dockerfile.match(/VOLUME \["\/var\/lib\/cokacremote"\]/g)).toHaveLength(1);
     expect(dockerfile).toContain("ARG COKACREMOTE_COMMIT=");
     expect(dockerfile).toContain('observed_commit="$(git rev-parse HEAD)"');
     expect(dockerfile).toContain("cokacremote source commit mismatch:");
