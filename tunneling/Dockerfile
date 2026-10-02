@@ -5,6 +5,7 @@ ARG DEBIAN_FRONTEND=noninteractive
 ARG TIMEZONE=UTC
 ARG COKACREMOTE_REPOSITORY=https://github.com/kstost/cokacremote.git
 ARG COKACREMOTE_REF=main
+ARG COKACREMOTE_COMMIT=
 
 ENV TZ=${TIMEZONE} \
     NODE_ENV=production \
@@ -39,6 +40,11 @@ RUN ln -snf /usr/share/zoneinfo/${TZ} /etc/localtime \
 RUN git clone --depth 1 --branch "${COKACREMOTE_REF}" \
         "${COKACREMOTE_REPOSITORY}" /opt/cokacremote \
     && cd /opt/cokacremote \
+    && observed_commit="$(git rev-parse HEAD)" \
+    && if [[ -n "${COKACREMOTE_COMMIT}" && "${observed_commit}" != "${COKACREMOTE_COMMIT}" ]]; then \
+         echo "cokacremote source commit mismatch: expected=${COKACREMOTE_COMMIT} observed=${observed_commit}" >&2; \
+         exit 65; \
+       fi \
     && npm ci --include=dev \
     && npm run build \
     && npm prune --omit=dev \
