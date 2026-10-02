@@ -2,6 +2,7 @@ services:
   workmachine:
     build:
       context: .
+      target: workmachine
       args:
         TIMEZONE: "${TZ:-UTC}"
         COKACREMOTE_REPOSITORY: "${COKACREMOTE_REPOSITORY:-https://github.com/kstost/cokacremote.git}"
@@ -53,7 +54,15 @@ services:
       retries: 3
 
   generic-backend:
-    image: "${WORKMACHINE_IMAGE:-workmachine:local}"
+    build:
+      context: .
+      target: generic-backend
+      args:
+        TIMEZONE: "${TZ:-UTC}"
+        COKACREMOTE_REPOSITORY: "${COKACREMOTE_REPOSITORY:-https://github.com/kstost/cokacremote.git}"
+        COKACREMOTE_REF: "${COKACREMOTE_REF:-main}"
+        COKACREMOTE_COMMIT: "${COKACREMOTE_COMMIT:-}"
+    image: "${GENERIC_BACKEND_IMAGE:-workmachine-generic-backend:local}"
     container_name: "${GENERIC_BACKEND_CONTAINER_NAME:-workmachine-generic-backend}"
     hostname: generic-backend
     restart: unless-stopped
