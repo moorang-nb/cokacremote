@@ -1,5 +1,5 @@
 # syntax=docker/dockerfile:1
-FROM ubuntu:24.04
+FROM ubuntu:24.04 AS workmachine-base
 
 ARG DEBIAN_FRONTEND=noninteractive
 ARG TIMEZONE=UTC
@@ -248,6 +248,21 @@ ENTRYPOINT
 
 chmod 0755 /usr/local/bin/workmachine-entrypoint
 SETUP
+
+FROM workmachine-base AS generic-backend
+
+WORKDIR /shared
+
+EXPOSE 2999
+
+HEALTHCHECK --interval=30s --timeout=5s --start-period=20s --retries=3 \
+    CMD curl -fsS -H "Host: localhost" http://127.0.0.1:2999/health || exit 1
+
+STOPSIGNAL SIGTERM
+
+ENTRYPOINT ["/usr/local/bin/workmachine-entrypoint"]
+
+FROM workmachine-base AS workmachine
 
 VOLUME ["/var/lib/cokacremote"]
 
