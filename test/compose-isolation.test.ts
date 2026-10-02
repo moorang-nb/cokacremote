@@ -18,6 +18,23 @@ function serviceBlock(source: string, name: string, nextName?: string): string {
 }
 
 describe("gateway/backend compose isolation contract", () => {
+  it("pins Linux-consumed tunneling assets to LF across Windows-style checkout", async () => {
+    const attributes = await readFile(
+      new URL("../.gitattributes", import.meta.url),
+      "utf8",
+    );
+    expect(attributes).toContain("tunneling/Dockerfile text eol=lf");
+    expect(attributes).toContain("tunneling/*.sh text eol=lf");
+    expect(attributes).toContain("tunneling/*.yml text eol=lf");
+    expect(attributes).toContain("tunneling/*.yaml text eol=lf");
+
+    const dockerfile = await readFile(
+      new URL("../tunneling/Dockerfile", import.meta.url),
+      "utf8",
+    );
+    expect(dockerfile).not.toContain("\r");
+  });
+
   it("keeps public gateway mounts and private generic mounts disjoint", async () => {
     const compose = await readFile(
       new URL("../tunneling/docker-compose.yml", import.meta.url),
