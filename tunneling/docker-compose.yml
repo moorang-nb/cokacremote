@@ -6,6 +6,7 @@ services:
         TIMEZONE: "${TZ:-UTC}"
         COKACREMOTE_REPOSITORY: "${COKACREMOTE_REPOSITORY:-https://github.com/kstost/cokacremote.git}"
         COKACREMOTE_REF: "${COKACREMOTE_REF:-main}"
+        COKACREMOTE_COMMIT: "${COKACREMOTE_COMMIT:-}"
     image: "${WORKMACHINE_IMAGE:-workmachine:local}"
     container_name: "${WORKMACHINE_CONTAINER_NAME:-workmachine}"
     hostname: workmachine
