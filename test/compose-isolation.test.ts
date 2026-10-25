@@ -46,6 +46,8 @@ describe("gateway/backend compose isolation contract", () => {
 
     expect(gateway).toContain("target: workmachine");
     expect(gateway).toContain("MCP_MODE: gateway");
+    expect(gateway).toContain('MCP_BRIDGE_READ_WAIT_MS: "${MCP_BRIDGE_READ_WAIT_MS:-8000}"');
+    expect(gateway).toContain('MCP_BRIDGE_RESULT_READ_WAIT_MS: "${MCP_BRIDGE_RESULT_READ_WAIT_MS:-8000}"');
     expect(gateway).toContain(
       'MCP_GENERIC_BACKEND_URL: "http://generic-backend:3000/mcp"',
     );
