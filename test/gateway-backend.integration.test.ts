@@ -146,9 +146,10 @@ describe("gateway and private generic backend", () => {
         });
       }
       expect(gatewayTools.tools.map((tool) => tool.name)).toEqual(
-        expect.arrayContaining(Object.values(ARCHIVE_TOOL_NAMES)),
+        expect.arrayContaining(ARCHIVE_TOOLS.map(tool => tool.name)),
       );
-      for (const name of Object.values(ARCHIVE_TOOL_NAMES)) {
+      for (const name of ARCHIVE_TOOLS.map(tool => tool.name)) {
+        expect(backendByName.has(name)).toBe(false);
         expect(gatewayByName.get(name)?._meta).toEqual({
           securitySchemes: [{ type: "oauth2", scopes: ["mcp:tools"] }],
         });

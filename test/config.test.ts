@@ -89,6 +89,27 @@ describe("loadConfig", () => {
     ).toThrow("MCP_OAUTH_APPROVAL_KEY");
   });
 
+  it("keeps legacy bridge wait fallback while allowing read-specific budgets", () => {
+    const legacy = loadConfig({ MCP_AUTH_TOKEN: "secret", MCP_BRIDGE_RESULT_WAIT_MS: "4321" }, "/tmp");
+    expect(legacy).toMatchObject({
+      bridgeResultWaitMs: 4321,
+      bridgeReadWaitMs: 4321,
+      bridgeResultReadWaitMs: 4321,
+    });
+    const split = loadConfig({
+      MCP_AUTH_TOKEN: "secret",
+      MCP_BRIDGE_RESULT_WAIT_MS: "30000",
+      MCP_BRIDGE_READ_WAIT_MS: "2000",
+      MCP_BRIDGE_RESULT_READ_WAIT_MS: "250",
+    }, "/tmp");
+    expect(split).toMatchObject({
+      bridgeResultWaitMs: 30000,
+      bridgeReadWaitMs: 2000,
+      bridgeResultReadWaitMs: 250,
+    });
+    expect(() => loadConfig({ MCP_AUTH_TOKEN: "secret", MCP_BRIDGE_READ_WAIT_MS: "-1" }, "/tmp")).toThrow("MCP_BRIDGE_READ_WAIT_MS");
+  });
+
   it("rejects unsafe proxy trust and OAuth URL settings", () => {
     expect(() =>
       loadConfig({ MCP_AUTH_TOKEN: "secret", MCP_TRUST_PROXY_HOPS: "17" }, "/tmp"),

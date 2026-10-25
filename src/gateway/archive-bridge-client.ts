@@ -19,6 +19,7 @@ import type { AuthInfo } from "@modelcontextprotocol/sdk/server/auth/types.js";
 import { ErrorCode, McpError } from "@modelcontextprotocol/sdk/types.js";
 
 import type { AppConfig } from "../config.js";
+import { CREATIVE_BRIDGE_REQUEST_SCHEMA, isCreativeOperation, isCreativeReadOperation, validateCreativeArguments, type CreativeBridgeOperation } from "./archive-creative-contract.js";
 
 export const BRIDGE_REQUEST_SCHEMA = "aias-receiving-host-bridge-request-v1";
 export const BRIDGE_RESULT_SCHEMA = "aias-receiving-host-bridge-result-v1";
@@ -26,7 +27,8 @@ export const BRIDGE_RESULT_SCHEMA = "aias-receiving-host-bridge-result-v1";
 export type ArchiveBridgeOperation =
   | "source_draft_prepare"
   | "source_draft_preview"
-  | "source_draft_decide";
+  | "source_draft_decide"
+  | CreativeBridgeOperation;
 
 export interface ArchiveBridgeSubmission {
   bridgeRequestId: string;
@@ -48,7 +50,7 @@ interface OAuthProjection {
 }
 
 interface BridgeRequestUnsigned {
-  schema_version: typeof BRIDGE_REQUEST_SCHEMA;
+  schema_version: typeof BRIDGE_REQUEST_SCHEMA | typeof CREATIVE_BRIDGE_REQUEST_SCHEMA;
   bridge_generation: number;
   bridge_request_id: string;
   created_at: number;
@@ -296,14 +298,28 @@ function closedResult(value: unknown, expectedRequestId: string): BridgeResult {
   return { ...unsigned, result_sha256: result.result_sha256 };
 }
 
+export function bridgeWaitMsForOperation(
+  config: Pick<AppConfig, "bridgeResultWaitMs" | "bridgeReadWaitMs" | "bridgeResultReadWaitMs">,
+  operation: ArchiveBridgeOperation,
+): number {
+  if (operation === "bridge_result_read") {
+    return config.bridgeResultReadWaitMs;
+  }
+  if (isCreativeOperation(operation) && isCreativeReadOperation(operation as CreativeBridgeOperation)) {
+    return config.bridgeReadWaitMs;
+  }
+  return config.bridgeResultWaitMs;
+}
+
 export class ArchiveBridgeClient {
   constructor(private readonly config: AppConfig) {}
 
   private async waitForResult(
     resultFile: string,
     bridgeRequestId: string,
+    waitMs: number,
   ): Promise<BridgeResult | undefined> {
-    const deadline = Date.now() + this.config.bridgeResultWaitMs;
+    const deadline = Date.now() + waitMs;
     while (true) {
       try {
         const status = await lstat(resultFile);
@@ -343,6 +359,11 @@ export class ArchiveBridgeClient {
     semanticPayload: unknown,
     authInfo: AuthInfo | undefined,
   ): Promise<ArchiveBridgeSubmission> {
+    const creative = isCreativeOperation(operation);
+    if (!creative && !["source_draft_prepare", "source_draft_preview", "source_draft_decide"].includes(operation)) {
+      throw new McpError(ErrorCode.InvalidParams, "Unknown Archive bridge operation");
+    }
+    if (creative) semanticPayload = validateCreativeArguments(operation as CreativeBridgeOperation, semanticPayload);
     const oauth = projectAuth(this.config, authInfo);
     const fixed = requireGatewayConfig(this.config);
     const createdAt = Math.floor(Date.now() / 1000);
@@ -362,7 +383,7 @@ export class ArchiveBridgeClient {
 
     const bridgeRequestId = randomUUID();
     const unsigned: BridgeRequestUnsigned = {
-      schema_version: BRIDGE_REQUEST_SCHEMA,
+      schema_version: creative ? CREATIVE_BRIDGE_REQUEST_SCHEMA : BRIDGE_REQUEST_SCHEMA,
       bridge_generation: fixed.generation,
       bridge_request_id: bridgeRequestId,
       created_at: createdAt,
@@ -388,7 +409,8 @@ export class ArchiveBridgeClient {
     const resultFile = path.join(results, `${bridgeRequestId}.json`);
     await publishExclusive(requestFile, requestBytes);
 
-    const result = await this.waitForResult(resultFile, bridgeRequestId);
+    const waitMs = bridgeWaitMsForOperation(this.config, operation);
+    const result = await this.waitForResult(resultFile, bridgeRequestId, waitMs);
     if (!result) {
       return {
         bridgeRequestId,

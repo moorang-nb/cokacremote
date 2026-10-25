@@ -11,6 +11,8 @@ import {
   type ArchiveBridgeOperation,
 } from "./archive-bridge-client.js";
 
+import { CREATIVE_TOOLS, isCreativeToolName, creativeOperationFor, validateCreativeArguments, archiveResultDisposition, type CreativeToolName } from "./archive-creative-contract.js";
+
 export const ARCHIVE_TOOL_NAMES = {
   prepare: "archive_source_draft_prepare",
   preview: "archive_source_draft_preview",
@@ -29,7 +31,8 @@ const UUID_V4 =
   /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/;
 const SHA256 = /^[0-9a-f]{64}$/;
 
-type ArchiveToolName = (typeof ARCHIVE_TOOL_NAMES)[keyof typeof ARCHIVE_TOOL_NAMES];
+type LegacyArchiveToolName = (typeof ARCHIVE_TOOL_NAMES)[keyof typeof ARCHIVE_TOOL_NAMES];
+type ArchiveToolName = LegacyArchiveToolName | CreativeToolName;
 
 const projectKeySchema = {
   type: "string",
@@ -46,6 +49,7 @@ const targetOperationSchema = {
 };
 
 export const ARCHIVE_TOOLS: Tool[] = [
+  ...CREATIVE_TOOLS,
   {
     name: ARCHIVE_TOOL_NAMES.prepare,
     title: "Prepare Archive source draft",
@@ -101,7 +105,7 @@ export const ARCHIVE_TOOLS: Tool[] = [
     name: ARCHIVE_TOOL_NAMES.decide,
     title: "Decide Archive source draft",
     description:
-      "Relay an explicit user decision for a prior Archive source-draft operation. Approval requires parallel-session approval evidence.",
+      "Relay an explicit user decision for a prior Archive source-draft operation. Preserve the actual parallel-session boolean: legacy requests require explicit true; the generic LORE route uses false and the protected owner verifies its sole-session proof.",
     inputSchema: {
       type: "object",
       additionalProperties: false,
@@ -262,12 +266,6 @@ function decidePayload(value: unknown): Record<string, unknown> {
   if (typeof args.parallel_session_approved !== "boolean") {
     throw new McpError(ErrorCode.InvalidParams, "parallel_session_approved must be boolean");
   }
-  if (args.decision === "approved" && args.parallel_session_approved !== true) {
-    throw new McpError(
-      ErrorCode.InvalidParams,
-      "approved decision requires parallel_session_approved=true",
-    );
-  }
   const decidedAt = utcDate(args.decided_at, "decided_at");
   const expiresAt = utcDate(args.expires_at, "expires_at");
   if (Date.parse(expiresAt) <= Date.parse(decidedAt)) {
@@ -286,7 +284,7 @@ function decidePayload(value: unknown): Record<string, unknown> {
   };
 }
 
-function operationFor(name: ArchiveToolName): ArchiveBridgeOperation {
+function operationFor(name: LegacyArchiveToolName): ArchiveBridgeOperation {
   if (name === ARCHIVE_TOOL_NAMES.prepare) {
     return "source_draft_prepare";
   }
@@ -297,7 +295,7 @@ function operationFor(name: ArchiveToolName): ArchiveBridgeOperation {
 }
 
 export function isArchiveToolName(name: string): name is ArchiveToolName {
-  return Object.values(ARCHIVE_TOOL_NAMES).includes(name as ArchiveToolName);
+  return isCreativeToolName(name) || Object.values(ARCHIVE_TOOL_NAMES).includes(name as LegacyArchiveToolName);
 }
 
 export async function callArchiveTool(
@@ -306,13 +304,15 @@ export async function callArchiveTool(
   rawArguments: unknown,
   authInfo: AuthInfo | undefined,
 ): Promise<CallToolResult> {
+  const operation = isCreativeToolName(name) ? creativeOperationFor(name) : operationFor(name);
   const payload =
-    name === ARCHIVE_TOOL_NAMES.prepare
+    isCreativeToolName(name) ? validateCreativeArguments(creativeOperationFor(name), rawArguments) : name === ARCHIVE_TOOL_NAMES.prepare
       ? preparePayload(rawArguments)
       : name === ARCHIVE_TOOL_NAMES.preview
         ? previewPayload(rawArguments)
         : decidePayload(rawArguments);
-  const result = await client.submit(operationFor(name), payload, authInfo);
+  const result = await client.submit(operation, payload, authInfo);
+  const disposition = archiveResultDisposition(result);
   const structuredContent = {
     bridgeRequestId: result.bridgeRequestId,
     state: result.state,
@@ -322,11 +322,19 @@ export async function callArchiveTool(
     presentation: result.presentation,
     automaticResubmissionAllowed: result.automaticResubmissionAllowed,
     createdAt: result.createdAt,
-    pending: result.pending,
+    pending: disposition.pending,
+    nextAction: disposition.isError ? null : disposition.nativePending ? {
+      tool: "archive_operation_result_read",
+      ...(operation === "operation_result_read" ? { arguments: { target_operation_id: payload.target_operation_id } } : {}),
+      instruction: "The native result is pending. Make a fresh result read with the original target_operation_id from the initial read. Do not use this read's own relayOperationId or repeat the mutation.",
+    } : disposition.pending && disposition.inquiryTarget ? {
+      tool: "archive_bridge_result_read", arguments: { target_bridge_request_id: disposition.inquiryTarget },
+      instruction: "Inquire about this same original request; do not resubmit it.",
+    } : null,
   };
   return {
     structuredContent,
     content: [{ type: "text", text: JSON.stringify(structuredContent) }],
-    isError: result.state === "RECOVERY_REQUIRED",
+    isError: disposition.isError,
   };
 }

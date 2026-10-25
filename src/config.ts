@@ -36,6 +36,8 @@ export interface AppConfig {
   gatewaySourceFingerprint: string | undefined;
   bridgeRequestTtlSeconds: number;
   bridgeResultWaitMs: number;
+  bridgeReadWaitMs: number;
+  bridgeResultReadWaitMs: number;
 }
 
 function parseBoolean(value: string | undefined, fallback: boolean): boolean {
@@ -211,6 +213,28 @@ export function loadConfig(
     }
   }
 
+  const bridgeResultWaitMs = parseInteger(
+    env.MCP_BRIDGE_RESULT_WAIT_MS,
+    30_000,
+    "MCP_BRIDGE_RESULT_WAIT_MS",
+    0,
+    300_000,
+  );
+  const bridgeReadWaitMs = parseInteger(
+    env.MCP_BRIDGE_READ_WAIT_MS,
+    bridgeResultWaitMs,
+    "MCP_BRIDGE_READ_WAIT_MS",
+    0,
+    300_000,
+  );
+  const bridgeResultReadWaitMs = parseInteger(
+    env.MCP_BRIDGE_RESULT_READ_WAIT_MS,
+    bridgeReadWaitMs,
+    "MCP_BRIDGE_RESULT_READ_WAIT_MS",
+    0,
+    300_000,
+  );
+
   return {
     mode,
     host: env.MCP_HOST?.trim() || "0.0.0.0",
@@ -305,12 +329,8 @@ export function loadConfig(
       30,
       300,
     ),
-    bridgeResultWaitMs: parseInteger(
-      env.MCP_BRIDGE_RESULT_WAIT_MS,
-      30_000,
-      "MCP_BRIDGE_RESULT_WAIT_MS",
-      0,
-      300_000,
-    ),
+    bridgeResultWaitMs,
+    bridgeReadWaitMs,
+    bridgeResultReadWaitMs,
   };
 }
